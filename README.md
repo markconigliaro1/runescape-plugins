@@ -24,15 +24,16 @@ Each plugin's README doubles as its mod.io description, and its
 ## Development (macOS)
 
 ```sh
-brew install lua@5.4 luarocks stylua lua-language-server
+brew install lua@5.4 luarocks stylua lua-language-server fswatch
 make setup                      # luacheck, busted, dkjson into .rocks/
 make check                      # lint, format check, tests, manifest validation
-make sync PLUGIN=hello-world    # copy into ~/Jagex/RuneScape-BETA/dev_plugins
+make watch PLUGIN=hello-world   # copy into ~/Jagex/RuneScape-BETA/dev_plugins on every save
 ```
 
 Then, in the beta client's console (Alt + `): `prf` to rescan, `pon hello-world`
-to enable. After each edit, run `make sync` again, then `prl hello-world` in game
-(the client ignores symlinked folders, so plugins are copied in).
+to enable. Leave `make watch` running; after each save, run `prl hello-world` in
+game. (The client ignores symlinked folders, so plugins are copied in. `make sync`
+does a one-off copy.)
 
 ## Releasing
 

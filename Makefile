@@ -8,7 +8,7 @@ export LUA_CPATH := $(CURDIR)/.rocks/lib/lua/5.4/?.so;;
 
 DEV_PLUGINS ?= $(HOME)/Jagex/RuneScape-BETA/dev_plugins
 
-.PHONY: check setup lint fmt fmt-check test validate package sync remove
+.PHONY: check setup lint fmt fmt-check test validate package sync watch remove
 
 check: lint fmt-check test validate  ## everything CI runs
 
@@ -44,6 +44,16 @@ sync:
 	@if [ -L "$(DEV_PLUGINS)/$(PLUGIN)" ]; then rm "$(DEV_PLUGINS)/$(PLUGIN)"; fi
 	rsync -a --delete --exclude '*.md' --exclude '.DS_Store' "plugins/$(PLUGIN)/" "$(DEV_PLUGINS)/$(PLUGIN)/"
 	@echo "synced plugins/$(PLUGIN) -> $(DEV_PLUGINS)/$(PLUGIN)"
+
+# make watch PLUGIN=hello-world  (syncs now, then again on every save; Ctrl+C to stop)
+# Still run prl <name> in game after a sync: the client doesn't reload by itself.
+watch: sync
+	@command -v fswatch >/dev/null || { echo "needs fswatch: brew install fswatch"; exit 1; }
+	@echo "watching plugins/$(PLUGIN) (Ctrl+C to stop)"
+	@fswatch -o -l 0.3 "plugins/$(PLUGIN)" | while read -r _; do \
+		$(MAKE) --no-print-directory -s sync PLUGIN=$(PLUGIN) >/dev/null && \
+		echo "$$(date +%H:%M:%S) synced, now run: prl $(PLUGIN)"; \
+	done
 
 # make remove PLUGIN=hello-world  (deletes the copy from dev_plugins)
 remove:
