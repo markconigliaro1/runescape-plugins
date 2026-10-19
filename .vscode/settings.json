@@ -1,0 +1,15 @@
+{
+	"[lua]": {
+		"editor.defaultFormatter": "JohnnyMorganz.stylua",
+		"editor.formatOnSave": true
+	},
+	"stylua.styluaPath": "/opt/homebrew/bin/stylua",
+	"Lua.misc.executablePath": "/opt/homebrew/bin/lua-language-server",
+	"files.exclude": {
+		".rocks": true
+	},
+	"search.exclude": {
+		".rocks": true,
+		"dist": true
+	}
+}

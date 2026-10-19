@@ -1,4 +1,20 @@
 {
   "runtime.version": "Lua 5.4",
-  "workspace.ignoreDir": [".rocks", "dist"]
+  "workspace.ignoreDir": [
+    ".rocks",
+    "dist"
+  ],
+  "diagnostics.globals": [
+    "describe",
+    "it",
+    "before_each",
+    "after_each",
+    "setup",
+    "teardown",
+    "pending",
+    "spy",
+    "stub",
+    "mock"
+  ],
+  "workspace.checkThirdParty": false
 }

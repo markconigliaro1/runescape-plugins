@@ -35,6 +35,12 @@ to enable. Leave `make watch` running; after each save, run `prl hello-world` in
 game. (The client ignores symlinked folders, so plugins are copied in. `make sync`
 does a one-off copy.)
 
+### VS Code
+
+Opening the folder suggests the extensions this repo uses (Claude Code, Lua,
+StyLua) and formats Lua on save. Under **Terminal → Run Task**: *Watch plugin*
+runs `make watch`, *Check* runs `make check`, *Package plugin* builds the zip.
+
 ## Releasing
 
 1. Bump `version` in the plugin's `plugin.json` (numbers and full stops only, e.g. `1.2.0`) and add a `CHANGELOG.md` entry.
