@@ -27,11 +27,12 @@ Each plugin's README doubles as its mod.io description, and its
 brew install lua@5.4 luarocks stylua lua-language-server
 make setup                      # luacheck, busted, dkjson into .rocks/
 make check                      # lint, format check, tests, manifest validation
-make link PLUGIN=hello-world    # symlink into ~/Jagex/RuneScape-BETA/dev_plugins
+make sync PLUGIN=hello-world    # copy into ~/Jagex/RuneScape-BETA/dev_plugins
 ```
 
 Then, in the beta client's console (Alt + `): `prf` to rescan, `pon hello-world`
-to enable, and `prl hello-world` after each edit.
+to enable. After each edit, run `make sync` again, then `prl hello-world` in game
+(the client ignores symlinked folders, so plugins are copied in).
 
 ## Releasing
 

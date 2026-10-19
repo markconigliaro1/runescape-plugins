@@ -8,7 +8,7 @@ export LUA_CPATH := $(CURDIR)/.rocks/lib/lua/5.4/?.so;;
 
 DEV_PLUGINS ?= $(HOME)/Jagex/RuneScape-BETA/dev_plugins
 
-.PHONY: check setup lint fmt fmt-check test validate package link unlink
+.PHONY: check setup lint fmt fmt-check test validate package sync remove
 
 check: lint fmt-check test validate  ## everything CI runs
 
@@ -37,11 +37,14 @@ package:
 	$(LUA) tools/validate.lua --release plugins/$(PLUGIN)
 	LUA=$(LUA) tools/package.sh $(PLUGIN)
 
-# make link PLUGIN=hello-world  (symlinks the plugin into the beta client's dev_plugins)
-link:
+# make sync PLUGIN=hello-world  (copies the plugin into the beta client's dev_plugins;
+# the client ignores symlinked folders, so run this after each edit, then prl in game)
+sync:
 	@test -d "$(DEV_PLUGINS)" || { echo "missing $(DEV_PLUGINS)"; exit 1; }
-	ln -sfn "$(CURDIR)/plugins/$(PLUGIN)" "$(DEV_PLUGINS)/$(PLUGIN)"
-	@echo "linked $(DEV_PLUGINS)/$(PLUGIN) -> plugins/$(PLUGIN)"
+	@if [ -L "$(DEV_PLUGINS)/$(PLUGIN)" ]; then rm "$(DEV_PLUGINS)/$(PLUGIN)"; fi
+	rsync -a --delete --exclude '*.md' --exclude '.DS_Store' "plugins/$(PLUGIN)/" "$(DEV_PLUGINS)/$(PLUGIN)/"
+	@echo "synced plugins/$(PLUGIN) -> $(DEV_PLUGINS)/$(PLUGIN)"
 
-unlink:
-	rm "$(DEV_PLUGINS)/$(PLUGIN)"
+# make remove PLUGIN=hello-world  (deletes the copy from dev_plugins)
+remove:
+	rm -rf "$(DEV_PLUGINS)/$(PLUGIN)"
