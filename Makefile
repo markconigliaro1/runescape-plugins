@@ -32,12 +32,12 @@ test:
 validate:
 	$(LUA) tools/validate.lua
 
-# make package PLUGIN=hello-world
+# make package PLUGIN=preset-vault
 package:
 	$(LUA) tools/validate.lua --release plugins/$(PLUGIN)
 	LUA=$(LUA) tools/package.sh $(PLUGIN)
 
-# make sync PLUGIN=hello-world  (copies the plugin into the beta client's dev_plugins;
+# make sync PLUGIN=preset-vault  (copies the plugin into the beta client's dev_plugins;
 # the client ignores symlinked folders, so run this after each edit, then prl in game)
 sync:
 	@test -d "$(DEV_PLUGINS)" || { echo "missing $(DEV_PLUGINS)"; exit 1; }
@@ -45,7 +45,7 @@ sync:
 	rsync -a --delete --exclude '*.md' --exclude '.DS_Store' "plugins/$(PLUGIN)/" "$(DEV_PLUGINS)/$(PLUGIN)/"
 	@echo "synced plugins/$(PLUGIN) -> $(DEV_PLUGINS)/$(PLUGIN)"
 
-# make watch PLUGIN=hello-world  (syncs now, then again on every save; Ctrl+C to stop)
+# make watch PLUGIN=preset-vault  (syncs now, then again on every save; Ctrl+C to stop)
 # Still run prl <name> in game after a sync: the client doesn't reload by itself.
 watch: sync
 	@command -v fswatch >/dev/null || { echo "needs fswatch: brew install fswatch"; exit 1; }
@@ -55,6 +55,6 @@ watch: sync
 		echo "$$(date +%H:%M:%S) synced, now run: prl $(PLUGIN)"; \
 	done
 
-# make remove PLUGIN=hello-world  (deletes the copy from dev_plugins)
+# make remove PLUGIN=preset-vault  (deletes the copy from dev_plugins)
 remove:
 	rm -rf "$(DEV_PLUGINS)/$(PLUGIN)"

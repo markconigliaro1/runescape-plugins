@@ -7,7 +7,7 @@ approves it.
 
 | Plugin | What it does |
 |---|---|
-| [hello-world](plugins/hello-world) | Test plugin for the development setup |
+| [preset-vault](plugins/preset-vault) | Keeps more bank presets than the game's 15 and highlights what to withdraw (in progress) |
 
 ## Layout
 
@@ -27,11 +27,11 @@ Each plugin's README doubles as its mod.io description, and its
 brew install lua@5.4 luarocks stylua lua-language-server fswatch
 make setup                      # luacheck, busted, dkjson into .rocks/
 make check                      # lint, format check, tests, manifest validation
-make watch PLUGIN=hello-world   # copy into ~/Jagex/RuneScape-BETA/dev_plugins on every save
+make watch PLUGIN=preset-vault   # copy into ~/Jagex/RuneScape-BETA/dev_plugins on every save
 ```
 
-Then, in the beta client's console (Alt + `): `prf` to rescan, `pon hello-world`
-to enable. Leave `make watch` running; after each save, run `prl hello-world` in
+Then, in the beta client's console (Alt + `): `prf` to rescan, `pon preset-vault`
+to enable. Leave `make watch` running; after each save, run `prl preset-vault` in
 game. (The client ignores symlinked folders, so plugins are copied in. `make sync`
 does a one-off copy.)
 
@@ -44,8 +44,8 @@ runs `make watch`, *Check* runs `make check`, *Package plugin* builds the zip.
 ## Releasing
 
 1. Bump `version` in the plugin's `plugin.json` (numbers and full stops only, e.g. `1.2.0`) and add a `CHANGELOG.md` entry.
-2. Tag and push: `git tag hello-world/v1.2.0 && git push --tags`.
-3. CI validates the plugin, builds `hello-world-1.2.0.zip`, and attaches it to a GitHub Release.
+2. Tag and push: `git tag preset-vault/v1.2.0 && git push --tags`.
+3. CI validates the plugin, builds `preset-vault-1.2.0.zip`, and attaches it to a GitHub Release.
 4. Upload the zip to the plugin's mod.io page by hand. Don't change a listing while it's in moderation.
 
 ## License
