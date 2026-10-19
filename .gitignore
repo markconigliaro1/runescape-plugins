@@ -1,3 +1,13 @@
 .rocks/
 dist/
 .DS_Store
+
+# Local exports from the game client (e.g. `pan NPC`). Reference only; never
+# commit them, the repo is public.
+data/
+
+# Personal Claude Code settings (e.g. the dev_plugins sync hook).
+.claude/settings.local.json
+
+# Local tutorial plugin (kept for reference, not published).
+plugins/hello-world/
