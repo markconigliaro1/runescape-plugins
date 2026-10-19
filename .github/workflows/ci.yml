@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: leafo/gh-actions-lua@v11
+        with:
+          luaVersion: "5.4"
+      - uses: leafo/gh-actions-luarocks@v5
+      - run: luarocks install luacheck && luarocks install busted && luarocks install dkjson
+      - uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --check .
+      - name: Lint
+        run: luacheck .
+      - name: Test
+        run: busted
+      - name: Validate plugins
+        run: lua tools/validate.lua
