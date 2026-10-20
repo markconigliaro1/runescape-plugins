@@ -13,6 +13,7 @@ local STORAGE_KEY = "presets"
 local WINDOW_X_KEY = "windowX"
 local WINDOW_Y_KEY = "windowY"
 local STRICT_SLOTS_KEY = "strictSlots"
+local SHOW_FAMILIAR_KEY = "showFamiliar"
 
 -- The inventories the plugin reads (see config.Inv in the API docs).
 local BACKPACK = config.Inv.INV
@@ -36,6 +37,7 @@ local MARGIN = 10
 local GAP = 14
 local HEADER_HEIGHT = 30 -- our own title bar
 local LINE_HEIGHT = 24 -- one line of text
+local NAME_ROW_GAP = 10 -- space between the preset name row and the item icons
 local BUTTON_HEIGHT = 30
 local TITLE_BUTTON_WIDTH = 30 -- the move grip and the X, at the right of the title bar
 
@@ -143,14 +145,20 @@ local gridHeight = math.max(backpackRows, equipmentRows, bobRows) * ICON_HEIGHT
 local backpackX = MARGIN + LIST_WIDTH + GAP
 local equipmentX = backpackX + BACKPACK_COLUMNS * ICON_WIDTH + GAP
 local bobX = equipmentX + EQUIPMENT_COLUMNS * ICON_WIDTH + GAP
-local rightWidth = (bobX + BOB_COLUMNS * ICON_WIDTH) - backpackX
+-- The window has two widths: with the familiar (BoB) section closed, it ends
+-- after the worn grid; open, after the BoB grid. `rightWidth` is the width of
+-- the right-hand column (title, grids, status line) for each.
+local closedWidth = equipmentX + EQUIPMENT_COLUMNS * ICON_WIDTH + MARGIN
+local openWidth = bobX + BOB_COLUMNS * ICON_WIDTH + MARGIN
+local function rightWidthFor(width)
+	return width - MARGIN - backpackX
+end
 
 local contentY = HEADER_HEIGHT + MARGIN
-local gridY = contentY + LINE_HEIGHT
+local gridY = contentY + LINE_HEIGHT + NAME_ROW_GAP
 local statusY = gridY + gridHeight + 6
 local buttonY = statusY + LINE_HEIGHT + 6
 
-local windowWidth = bobX + BOB_COLUMNS * ICON_WIDTH + MARGIN
 local windowHeight = buttonY + BUTTON_HEIGHT + MARGIN
 
 -- The window's shadow, styled after the game's own: a soft dark glow on every
@@ -183,7 +191,7 @@ bankButton.stylesheetID = id.StyleSheet.BUTTON_DEFAULT
 bankButton.hidden = true
 
 local window = ui.GroupBox.new(gameWindow)
-window:SetSize(windowWidth, windowHeight)
+-- (Sized by layoutWidth, at the end of the window code.)
 -- No built-in header: it has no background in this client, so the window
 -- draws its own title bar (below) instead.
 window:SetHeaderLayout(0, 0, 0, 0, 0)
@@ -203,7 +211,6 @@ background.clickthrough = false
 
 -- The title bar's strip across the top, behind its title and buttons.
 local titleBar = ui.Rectangle.new(window)
-titleBar:SetSize(windowWidth, HEADER_HEIGHT)
 titleBar.colour = TITLE_BAR_COLOUR
 titleBar.fill = true
 titleBar.clickthrough = false
@@ -211,13 +218,11 @@ titleBar.clickthrough = false
 -- Borders: a lighter line under the title bar, and a thin outline round the
 -- whole window, so it stands out from the game behind it.
 local titleBarEdge = ui.Rectangle.new(window)
-titleBarEdge:SetSize(windowWidth, 1)
 titleBarEdge:SetPos(0, HEADER_HEIGHT - 1)
 titleBarEdge.colour = BORDER_COLOUR
 titleBarEdge.fill = true
 
 local windowEdge = ui.Rectangle.new(window)
-windowEdge:SetSize(windowWidth, windowHeight)
 windowEdge.colour = BORDER_COLOUR
 windowEdge.fill = false
 
@@ -259,12 +264,21 @@ nameInput:SetPos(MARGIN, statusY)
 
 local title = ui.Text.new(window)
 title.font = id.Font.MUSEO_SANS_15PT_REGULAR
-title:SetSize(rightWidth, LINE_HEIGHT)
-title:SetPos(backpackX, contentY)
+title:SetPos(backpackX, contentY) -- sized by layoutWidth, beside the familiar button
+
+-- Shows or hides the familiar (BoB) section. Closed by default, as few
+-- presets use a beast of burden; the choice is remembered. Its label is kept
+-- up to date by refresh, and setFamiliarShown is defined further down.
+local FAMILIAR_BUTTON_WIDTH = 130
+local showFamiliar = PersistentDB:Get(SHOW_FAMILIAR_KEY) == true
+local setFamiliarShown
+local familiarButton = addButton("Show familiar", id.StyleSheet.BUTTON_DEFAULT, function()
+	setFamiliarShown(not showFamiliar, true)
+end)
 
 -- Creates a grid with one cell per slot of `invType`, its top-left corner at
 -- x, y, every cell ICON_WIDTH by ICON_HEIGHT. `makeCell` creates what goes in
--- each cell. Returns the cells, indexed by slot number.
+-- each cell. Returns the cells, indexed by slot number, and the grid.
 local function addGrid(invType, columns, x, y, makeCell)
 	local rows = math.ceil(invType.size / columns)
 	local grid = ui.Grid.new(window)
@@ -279,7 +293,7 @@ local function addGrid(invType, columns, x, y, makeCell)
 		cell.hidden = true
 		cells[slot] = cell
 	end
-	return cells
+	return cells, grid
 end
 
 local function makeIcon(grid)
@@ -315,9 +329,10 @@ end
 -- Draws a recessed well behind every slot of a grid, like the bank's own item
 -- slots: a dark square with a faint edge, a couple of units in from the
 -- cell's edges so neighbouring wells have a gap between them. Placed by exact
--- position (not in a Grid) so the gap is guaranteed.
+-- position (not in a Grid) so the gap is guaranteed. Returns the rectangles.
 local SLOT_INSET = 2
 local function addSlotWells(invType, columns, x, y)
+	local parts = {}
 	for slot = 1, invType.size do
 		local column, row = (slot - 1) % columns, (slot - 1) // columns
 		local wellX = x + column * ICON_WIDTH + SLOT_INSET
@@ -335,31 +350,37 @@ local function addSlotWells(invType, columns, x, y)
 		edge:SetPos(wellX, wellY)
 		edge.colour = SLOT_EDGE_COLOUR
 		edge.fill = false
+		parts[#parts + 1] = well
+		parts[#parts + 1] = edge
 	end
+	return parts
 end
 
 -- Each slot of the backpack, worn and BoB grids: a recessed well, an icon,
 -- its quantity text and an error frame, laid exactly over each other (later
--- ones are drawn on top).
+-- ones are drawn on top). Returns the slots, and a list of every component
+-- made (so a whole section can be hidden at once).
 local function addSlots(invType, columns, x, y)
-	addSlotWells(invType, columns, x, y)
-	local icons = addGrid(invType, columns, x, y, makeIcon)
-	local quantities = addGrid(invType, columns, x, y, makeQuantity)
-	local marks = addGrid(invType, columns, x, y, makeErrorMark)
+	local parts = addSlotWells(invType, columns, x, y)
+	local icons, iconGrid = addGrid(invType, columns, x, y, makeIcon)
+	local quantities, quantityGrid = addGrid(invType, columns, x, y, makeQuantity)
+	local marks, markGrid = addGrid(invType, columns, x, y, makeErrorMark)
+	parts[#parts + 1] = iconGrid
+	parts[#parts + 1] = quantityGrid
+	parts[#parts + 1] = markGrid
 	local slots = {}
 	for slot = 1, invType.size do
 		slots[slot] = { icon = icons[slot], quantity = quantities[slot], mark = marks[slot] }
 	end
-	return slots
+	return slots, parts
 end
 
 local backpackSlots = addSlots(BACKPACK, BACKPACK_COLUMNS, backpackX, gridY)
 local equipmentSlots = addSlots(EQUIPMENT, EQUIPMENT_COLUMNS, equipmentX, gridY)
-local bobSlots = addSlots(BOB, BOB_COLUMNS, bobX, gridY)
+local bobSlots, bobParts = addSlots(BOB, BOB_COLUMNS, bobX, gridY)
 
 local status = ui.Text.new(window)
 status.font = id.Font.MUSEO_SANS_15PT_REGULAR
-status:SetSize(rightWidth, LINE_HEIGHT)
 status:SetPos(backpackX, statusY)
 
 -- What's shown -------------------------------------------------------------
@@ -428,8 +449,17 @@ end
 local itemsToHighlight = {}
 local backpackErrors = {}
 
+-- Labels the familiar button: what pressing it does, plus how many BoB items
+-- the shown preset has, so a preset with a BoB is noticeable while it's closed.
+local function labelFamiliarButton(preset)
+	local count = preset and #presets.filledSlots(preset.bob) or 0
+	local label = showFamiliar and "Hide familiar" or "Show familiar"
+	familiarButton.label = count > 0 and formatStr("{} ({})", label, count) or label
+end
+
 local function refresh()
 	local preset = selected and savedPresets[selected]
+	labelFamiliarButton(preset)
 	itemsToHighlight, backpackErrors = {}, {}
 	if not preset then
 		title.content = "No saved presets yet"
@@ -566,6 +596,12 @@ local missingButton
 local function toggleMissing()
 	showingMissing = not showingMissing
 	missingButton.label = showingMissing and "Show whole preset" or "Show what's missing"
+	-- The BoB is part of what's being checked, so open the familiar section if
+	-- this preset has one (without changing the player's saved preference).
+	local preset = selected and savedPresets[selected]
+	if showingMissing and not showFamiliar and preset and next(preset.bob) ~= nil then
+		setFamiliarShown(true, false)
+	end
 	refresh()
 end
 
@@ -578,7 +614,6 @@ deleteButton:SetSize((LIST_WIDTH - 6) // 2, BUTTON_HEIGHT)
 deleteButton:SetPos(MARGIN + (LIST_WIDTH + 6) // 2, buttonY)
 
 missingButton = addButton("Show what's missing", id.StyleSheet.BUTTON_DEFAULT, toggleMissing)
-missingButton:SetSize(rightWidth, BUTTON_HEIGHT)
 missingButton:SetPos(backpackX, buttonY)
 
 -- Moving the window --------------------------------------------------------
@@ -624,7 +659,6 @@ local TITLE = "Preset Vault"
 local titleText = ui.Text.new(window)
 titleText.font = id.Font.MUSEO_SANS_15PT_REGULAR
 titleText.content = TITLE
-titleText:SetSize(windowWidth, HEADER_HEIGHT)
 titleText:AlignTo(ui.AlignMode.CENTRE)
 titleText.isShadowed = true
 
@@ -650,7 +684,6 @@ end
 -- stands in for a grip icon, as the game's font may not have one.
 local moveGrip = addButton("::", id.StyleSheet.BUTTON_DEFAULT, toggleMove)
 moveGrip:SetSize(TITLE_BUTTON_WIDTH, HEADER_HEIGHT - 6)
-moveGrip:SetPos(windowWidth - 2 * TITLE_BUTTON_WIDTH - 8, 3)
 
 -- Opening and closing ------------------------------------------------------
 -- The window starts closed. The button Preset Vault adds to the bank opens
@@ -676,7 +709,47 @@ local closeButton = addButton("X", id.StyleSheet.BUTTON_DEFAULT, function()
 	setWindowOpen(false)
 end)
 closeButton:SetSize(TITLE_BUTTON_WIDTH, HEADER_HEIGHT - 6)
-closeButton:SetPos(windowWidth - TITLE_BUTTON_WIDTH - 4, 3)
+
+-- Familiar section and window width ------------------------------------------
+
+-- Sizes and places everything that depends on the window's width, for the
+-- familiar section open or closed, and shows or hides that section.
+local function layoutWidth()
+	local width = showFamiliar and openWidth or closedWidth
+	local rightWidth = rightWidthFor(width)
+
+	window:SetSize(width, windowHeight)
+	titleBar:SetSize(width, HEADER_HEIGHT)
+	titleBarEdge:SetSize(width, 1)
+	windowEdge:SetSize(width, windowHeight)
+	titleText:SetSize(width, HEADER_HEIGHT)
+	moveGrip:SetPos(width - 2 * TITLE_BUTTON_WIDTH - 8, 3)
+	closeButton:SetPos(width - TITLE_BUTTON_WIDTH - 4, 3)
+
+	title:SetSize(rightWidth - FAMILIAR_BUTTON_WIDTH - 6, LINE_HEIGHT)
+	familiarButton:SetSize(FAMILIAR_BUTTON_WIDTH, LINE_HEIGHT)
+	familiarButton:SetPos(backpackX + rightWidth - FAMILIAR_BUTTON_WIDTH, contentY)
+	status:SetSize(rightWidth, LINE_HEIGHT)
+	missingButton:SetSize(rightWidth, BUTTON_HEIGHT)
+
+	for _, part in ipairs(bobParts) do
+		part.hidden = not showFamiliar
+	end
+end
+
+-- Opens or closes the familiar section. `remember` saves the choice for next
+-- time; it's false when the section opens by itself.
+setFamiliarShown = function(shown, remember)
+	showFamiliar = shown
+	if remember then
+		PersistentDB:SetBool(SHOW_FAMILIAR_KEY, shown)
+	end
+	layoutWidth()
+	placeWindow(window.x, window.y) -- re-fit the shadow, and keep it on screen
+	refresh()
+end
+
+layoutWidth()
 
 window.hidden = true
 

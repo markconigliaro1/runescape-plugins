@@ -11,6 +11,9 @@ first.
   carrying if one is summoned, under a name you choose.
 - **Browse** your saved setups in a list. The selected one is shown as item
   icons, laid out like your backpack, worn equipment and beast of burden.
+  The beast of burden section is hidden until you press **Show familiar**;
+  the button shows how many familiar items the preset has, and the section
+  opens by itself when you check what's missing for a preset that uses one.
 - **Show what's missing:** items you already have fade out, so the ones you
   still need stand out. With your bank open, the items you still need are
   outlined in green in your bank, and you're told if your bank doesn't have
