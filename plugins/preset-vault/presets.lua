@@ -54,6 +54,19 @@ function presets.find(list, name)
 	return nil
 end
 
+-- Returns `name` if no preset in the list has it yet, otherwise the first of
+-- "name (2)", "name (3)", ... that's free.
+function presets.uniqueName(list, name)
+	if not presets.find(list, name) then
+		return name
+	end
+	local number = 2
+	while presets.find(list, string.format("%s (%d)", name, number)) do
+		number = number + 1
+	end
+	return string.format("%s (%d)", name, number)
+end
+
 -- Adds a preset to the list, replacing any existing preset with the same name.
 -- Returns its position in the list.
 function presets.save(list, preset)

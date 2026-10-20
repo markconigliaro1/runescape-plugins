@@ -211,12 +211,19 @@ for _, layer in ipairs(SHADOW_LAYERS) do
 	shadows[#shadows + 1] = { rectangle = shadow, spread = layer.spread }
 end
 
--- The "Preset Vault" button shown on the bank (see "Bank button" below). It's
--- created here, before the window, so the window is drawn on top of it.
+-- The "Preset Vault" and "Quick save" buttons shown on the bank (see "Bank
+-- buttons" below). They're created here, before the window, so the window is
+-- drawn on top of them.
 local bankButton = ui.Button.new(gameWindow)
 bankButton.label = "Preset Vault"
 bankButton.stylesheetID = id.StyleSheet.BUTTON_DEFAULT
 bankButton.hidden = true
+
+local QUICK_SAVE_LABEL = "Quick save"
+local quickSaveButton = ui.Button.new(gameWindow)
+quickSaveButton.label = QUICK_SAVE_LABEL
+quickSaveButton.stylesheetID = id.StyleSheet.BUTTON_DEFAULT
+quickSaveButton.hidden = true
 
 local window = ui.GroupBox.new(gameWindow)
 -- (Sized by layoutWidth, at the end of the window code.)
@@ -639,19 +646,68 @@ end)
 
 -- Saves what the player has on them now, under the typed name (or a numbered
 -- one if the box is empty). Saving under an existing name replaces it.
-local function saveCurrent()
-	-- Spaces at either end are dropped, so "  " counts as no name.
-	local name = typedName:match("^%s*(.-)%s*$")
-	if name == "" then
-		name = "Preset " .. (#savedPresets + 1)
-	end
+-- Saves what the player has on them now (backpack, worn items and, if a
+-- familiar is out, its inventory) as a preset called `name`, replacing any
+-- preset with that name, and selects it.
+local function savePreset(name)
 	local preset = presets.new(name)
 	preset.inventory = readSlots(BACKPACK)
 	preset.equipment = readSlots(EQUIPMENT)
 	preset.bob = readSlots(BOB) -- empty when no familiar is out
 	selected = presets.save(savedPresets, preset)
+	storePresets()
+	refreshList()
+	refresh()
+end
+
+-- The text in the name box, without spaces at either end ("  " counts as no
+-- name).
+local function trimmedName()
+	return typedName:match("^%s*(.-)%s*$")
+end
+
+local function clearNameBox()
 	nameInput.content = ""
 	typedName = ""
+end
+
+-- Save: under the typed name, or a numbered one if the box is empty. Saving
+-- under an existing name replaces that preset.
+local function saveCurrent()
+	local name = trimmedName()
+	if name == "" then
+		name = "Preset " .. (#savedPresets + 1)
+	end
+	clearNameBox()
+	savePreset(name)
+end
+
+-- Quick save (the button on the bank): saves straight away under a name made
+-- from the date and time, e.g. "Saved 19 Oct 20:15", numbered if that's taken.
+-- Rename it later from the window. (Falls back to "Quick save" if the client
+-- doesn't provide os.date.)
+local function quickSave()
+	local ok, stamp = pcall(function()
+		return os.date("%d %b %H:%M")
+	end)
+	local name = (ok and stamp) and ("Saved " .. stamp) or "Quick save"
+	savePreset(presets.uniqueName(savedPresets, name))
+end
+
+-- Rename: gives the selected preset the typed name, unless another preset
+-- already has it.
+local function renameSelected()
+	local name = trimmedName()
+	if not selected then
+		return
+	elseif name == "" then
+		status.content = "Type the new name in the box first."
+		return
+	elseif not presets.rename(savedPresets, selected, name) then
+		status.content = formatStr("Another preset is already called {}.", name)
+		return
+	end
+	clearNameBox()
 	storePresets()
 	refreshList()
 	refresh()
@@ -697,13 +753,23 @@ local function toggleMissing()
 	refresh()
 end
 
+-- Save, Rename and Delete share the row under the name box.
+local LEFT_BUTTON_WIDTH = (LIST_WIDTH - 2 * 6) // 3
+local function leftButtonX(position)
+	return MARGIN + (position - 1) * (LEFT_BUTTON_WIDTH + 6)
+end
+
 local saveButton = addButton("Save", id.StyleSheet.BUTTON_DEFAULT, saveCurrent)
-saveButton:SetSize((LIST_WIDTH - 6) // 2, BUTTON_HEIGHT)
-saveButton:SetPos(MARGIN, buttonY)
+saveButton:SetSize(LEFT_BUTTON_WIDTH, BUTTON_HEIGHT)
+saveButton:SetPos(leftButtonX(1), buttonY)
+
+local renameButton = addButton("Rename", id.StyleSheet.BUTTON_DEFAULT, renameSelected)
+renameButton:SetSize(LEFT_BUTTON_WIDTH, BUTTON_HEIGHT)
+renameButton:SetPos(leftButtonX(2), buttonY)
 
 deleteButton = addButton("Delete", id.StyleSheet.BUTTON_DEFAULT, deleteSelected)
-deleteButton:SetSize((LIST_WIDTH - 6) // 2, BUTTON_HEIGHT)
-deleteButton:SetPos(MARGIN + (LIST_WIDTH + 6) // 2, buttonY)
+deleteButton:SetSize(LEFT_BUTTON_WIDTH, BUTTON_HEIGHT)
+deleteButton:SetPos(leftButtonX(3), buttonY)
 
 missingButton = addButton("Show what's missing", id.StyleSheet.BUTTON_DEFAULT, toggleMissing)
 missingButton:SetPos(backpackX, buttonY)
@@ -1015,18 +1081,31 @@ local function drawBankHighlights()
 	end
 end
 
--- Bank button --------------------------------------------------------------
--- While the bank is open, a "Preset Vault" button sits directly above the
--- bank's Transfer and Presets tabs, spanning both. The Presets tab is
+-- Bank buttons -------------------------------------------------------------
+-- While the bank is open, two buttons sit directly above the bank's Transfer
+-- and Presets tabs, sharing their width: "Preset Vault" opens the window, and
+-- "Quick save" saves what the player has on them straight away. The Presets tab is
 -- BANK__SIDE_TAB_PRESETS (found by listing the bank's components in game; the
 -- docs don't list them). The button lives on the plugin layer and follows the
 -- tabs; the game's own tabs can't be resized to make room beside them.
 
 local TAB_GAP = 2 -- space between the tabs, and between the tabs and the button
 
--- (The button itself is created before the window, so it's drawn behind it.)
+-- (The buttons themselves are created before the window, so they're drawn
+-- behind it.)
 bankButton:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
 	setWindowOpen(window.hidden) -- opens it if closed, closes it if open
+end)
+
+-- Quick save works with the window closed, so the button itself confirms it
+-- by reading "Saved!" for a couple of seconds (counted down in the redraw
+-- loop below).
+local SAVED_LABEL_SECONDS = 2
+local savedLabelTimeLeft = 0
+quickSaveButton:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
+	quickSave()
+	quickSaveButton.label = "Saved!"
+	savedLabelTimeLeft = SAVED_LABEL_SECONDS
 end)
 
 -- Looks up a bank component by name, or nil if the client has no such name
@@ -1041,12 +1120,13 @@ local function findBankComponent(name)
 	return nil
 end
 
--- Shows the bank button above the Transfer and Presets tabs, as wide as both,
--- while they're on screen; hides it otherwise.
+-- Shows the bank buttons above the Transfer and Presets tabs, splitting their
+-- width, while they're on screen; hides them otherwise.
 local function placeBankButton()
 	local presetsTab = findBankComponent("BANK__SIDE_TAB_PRESETS")
 	if not (presetsTab and presetsTab.visibleGlobal) then
 		bankButton.hidden = true
+		quickSaveButton.hidden = true
 		return
 	end
 	local tabCorner = presetsTab.xyGlobal
@@ -1059,15 +1139,26 @@ local function placeBankButton()
 
 	-- On-screen position, made relative to the plugin layer the button is on.
 	local origin = gameWindow.xyGlobal
-	bankButton:SetSize(math.floor(right - left), presetsTab.height)
-	bankButton:SetPos(math.floor(left - origin.x), math.floor(tabCorner.y - TAB_GAP - presetsTab.height - origin.y))
+	local y = math.floor(tabCorner.y - TAB_GAP - presetsTab.height - origin.y)
+	local halfWidth = math.floor((right - left - TAB_GAP) / 2)
+	bankButton:SetSize(halfWidth, presetsTab.height)
+	bankButton:SetPos(math.floor(left - origin.x), y)
+	quickSaveButton:SetSize(halfWidth, presetsTab.height)
+	quickSaveButton:SetPos(math.floor(right - origin.x) - halfWidth, y)
 	bankButton.hidden = false
+	quickSaveButton.hidden = false
 end
 
 -- Redraw a few times a second rather than every frame: often enough to
 -- follow scrolling, without walking all the bank's slots 60 times a second.
 local sinceLastHighlight = 0
 Event.Draw.Subscribe("presetVaultHighlights", function(event)
+	if savedLabelTimeLeft > 0 then
+		savedLabelTimeLeft = savedLabelTimeLeft - event.timeDeltaSecs
+		if savedLabelTimeLeft <= 0 then
+			quickSaveButton.label = QUICK_SAVE_LABEL
+		end
+	end
 	sinceLastHighlight = sinceLastHighlight + event.timeDeltaSecs
 	if sinceLastHighlight >= HIGHLIGHT_INTERVAL then
 		sinceLastHighlight = 0

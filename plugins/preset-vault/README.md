@@ -4,11 +4,15 @@ The game gives you 15 bank presets. Preset Vault keeps as many more as you
 like, so you can overwrite a preset slot without screenshotting the old one
 first.
 
-- **Open it from your bank:** a **Preset Vault** button appears above your
-  bank's items whenever the bank is open. Press it again, or the **X**, to
-  put the window away.
+- **Open it from your bank:** a **Preset Vault** button appears above the
+  bank's Transfer and Presets tabs whenever the bank is open. Press it again,
+  or the **X**, to put the window away.
 - **Save** what you're carrying and wearing, and what your beast of burden is
   carrying if one is summoned, under a name you choose.
+- **Quick save** from the button beside **Preset Vault** on the bank: it saves
+  straight away, without opening the window, under a name like "Saved 19 Oct
+  20:15". **Rename** it later: select it, type the new name and press
+  **Rename**.
 - **Browse** your saved setups in a list. The selected one is shown as item
   icons, laid out like your backpack, worn equipment and beast of burden.
   The beast of burden section is hidden until you press **Show familiar**;

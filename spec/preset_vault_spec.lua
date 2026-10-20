@@ -57,6 +57,17 @@ describe("presets.filledSlots", function()
 	end)
 end)
 
+describe("presets.uniqueName", function()
+	it("keeps a name nobody has", function()
+		assert.equal("Slayer", presets.uniqueName({ presets.new("Raids") }, "Slayer"))
+	end)
+
+	it("numbers a name that's taken, skipping numbers in use", function()
+		local list = { presets.new("Slayer"), presets.new("Slayer (2)") }
+		assert.equal("Slayer (3)", presets.uniqueName(list, "Slayer"))
+	end)
+end)
+
 describe("presets.neededItems", function()
 	it("counts items across inventory and equipment", function()
 		assert.same({ [385] = 2, [1163] = 1 }, presets.totals(samplePreset()))
