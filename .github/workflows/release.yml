@@ -1,4 +1,4 @@
-# Push a tag like hello-world/v1.2.0 to build that plugin's upload zip and
+# Push a tag like preset-vault/v1.2.0 to build that plugin's upload zip and
 # attach it to a GitHub Release. Uploading to mod.io stays manual: don't
 # change files on mod.io while a version is in moderation.
 name: Release

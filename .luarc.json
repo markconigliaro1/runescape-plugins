@@ -2,7 +2,8 @@
   "runtime.version": "Lua 5.4",
   "workspace.ignoreDir": [
     ".rocks",
-    "dist"
+    "dist",
+    "data"
   ],
   "diagnostics.globals": [
     "describe",
@@ -14,7 +15,24 @@
     "pending",
     "spy",
     "stub",
-    "mock"
+    "mock",
+    "config",
+    "Event",
+    "formatStr",
+    "id",
+    "log",
+    "NPCList",
+    "PersistentDB",
+    "Player",
+    "SkillType",
+    "ui",
+    "var",
+    "Vector4",
+    "PluginShutdown",
+    "Inventory",
+    "Mouse",
+    "GameKey",
+    "Keyboard"
   ],
   "workspace.checkThirdParty": false
 }
