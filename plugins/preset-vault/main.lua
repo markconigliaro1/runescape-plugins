@@ -471,7 +471,18 @@ local function refresh()
 	showSlots(bobSlots, preset.bob, stillNeeded.bob, showingMissing, bobErrors)
 end
 
--- Refills the list of preset names, using each preset's position as its ID.
+-- Returns the position in savedPresets of the preset the list has highlighted,
+-- found by its name, or nil if nothing is highlighted. Going by name means the
+-- window always shows the highlighted preset, whatever numbering the list uses
+-- for entry IDs (in testing, highlighting by ID from code picked the wrong
+-- entry, so the list and the window disagreed until a preset was clicked).
+local function highlightedPreset()
+	local entry = presetList.selectedEntries and presetList.selectedEntries[1]
+	return entry and presets.find(savedPresets, entry.text)
+end
+
+-- Refills the list of preset names, highlights the selected one, then makes
+-- `selected` match whatever the list actually highlighted.
 local function refreshList()
 	presetList:SetEntries({})
 	for index, preset in ipairs(savedPresets) do
@@ -479,12 +490,18 @@ local function refreshList()
 	end
 	if selected then
 		presetList:SetEntrySelected(selected, true)
+		-- If that highlighted the wrong entry, the list is probably numbering
+		-- entries from 0 here, so try once more on that basis.
+		if highlightedPreset() ~= selected then
+			presetList:SetEntrySelected(selected - 1, true)
+		end
+		selected = highlightedPreset() or selected
 	end
 end
 
 presetList:Subscribe(ui.Hook.ONSELECTIONCHANGED, function(_list, entryID, change)
 	if change == ui.SelectionChangeEvent.SELECTED then
-		selected = entryID
+		selected = highlightedPreset() or entryID
 		refresh()
 	end
 end)
