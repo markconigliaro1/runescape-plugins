@@ -1,4 +1,6 @@
 std = "lua54"
-exclude_files = { ".rocks/**" }
+-- .rocks/ is where `make setup` installs tools locally; CI installs them into
+-- .lua/ and .luarocks/. None of it is our code.
+exclude_files = { ".rocks/**", ".lua/**", ".luarocks/**" }
 
 files["spec/**"] = { std = "+busted" }
