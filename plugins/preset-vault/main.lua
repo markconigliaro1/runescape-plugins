@@ -25,12 +25,40 @@ local EQUIPMENT = config.Inv.WORN
 -- (it reports 32 slots, the largest BoB, whichever familiar is out).
 local BOB = config.Inv.LORE_BOB
 
+-- Where each worn slot goes in the equipment figure: { column, row }, counting
+-- from 1, laid out like the game's own equipment screen. Slot numbers were
+-- found in game (the docs don't list them); 7, 9 and 12 are body parts the
+-- game no longer uses. The aura's slot isn't known yet, so an aura (or
+-- anything else not placed here) shows in the spare row under the figure.
+local WORN_FIGURE = {
+	[1] = { 2, 1 }, -- head
+	[18] = { 3, 1 }, -- pocket
+	[2] = { 1, 2 }, -- cape
+	[3] = { 2, 2 }, -- neck
+	[14] = { 3, 2 }, -- ammo
+	[4] = { 1, 3 }, -- main hand
+	[5] = { 2, 3 }, -- body
+	[6] = { 3, 3 }, -- off hand
+	[8] = { 2, 4 }, -- legs
+	[10] = { 1, 5 }, -- hands
+	[11] = { 2, 5 }, -- feet
+	[13] = { 3, 5 }, -- ring
+}
+local SPARE_ROW = 6 -- the row under the figure's 5
+
+-- Sprite IDs of the icons on the bank's backpack, worn and familiar tabs
+-- (BANK__BANKSIDE_INV_ICON, BANK__BANKSIDE_WORN_ICON and
+-- BANK__BOB_SIDE_TAB_ICON, read in game), reused under each section of the
+-- window. (Not BANK__BANK_INV_ICON and its neighbours: those are smaller
+-- icons lower down the bank's side panel.)
+local SECTION_ICONS = { backpack = 18772, worn = 18773, bob = 18787 }
+
 -- Layout, in interface units. The window's size is worked out from the icon
 -- grids, so icons keep their shape whatever the inventory sizes are.
 local ICON_WIDTH = 44
 local ICON_HEIGHT = 40
 local BACKPACK_COLUMNS = 4
-local EQUIPMENT_COLUMNS = 3
+local EQUIPMENT_COLUMNS = 3 -- the equipment figure's width
 local BOB_COLUMNS = 5 -- 5 x 7 holds the BoB's 32 slots at the backpack grid's height
 local LIST_WIDTH = 170
 local MARGIN = 10
@@ -138,9 +166,8 @@ highlights.clickthrough = true
 -- Where everything goes. Positions inside the window are measured from its
 -- top-left corner; the content starts below our own title bar.
 local backpackRows = math.ceil(BACKPACK.size / BACKPACK_COLUMNS)
-local equipmentRows = math.ceil(EQUIPMENT.size / EQUIPMENT_COLUMNS)
 local bobRows = math.ceil(BOB.size / BOB_COLUMNS)
-local gridHeight = math.max(backpackRows, equipmentRows, bobRows) * ICON_HEIGHT
+local gridHeight = math.max(backpackRows, SPARE_ROW, bobRows) * ICON_HEIGHT
 
 local backpackX = MARGIN + LIST_WIDTH + GAP
 local equipmentX = backpackX + BACKPACK_COLUMNS * ICON_WIDTH + GAP
@@ -156,7 +183,8 @@ end
 
 local contentY = HEADER_HEIGHT + MARGIN
 local gridY = contentY + LINE_HEIGHT + NAME_ROW_GAP
-local statusY = gridY + gridHeight + 6
+local sectionIconY = gridY + gridHeight + 4 -- each section's icon, under its slots
+local statusY = sectionIconY + 24 + 6
 local buttonY = statusY + LINE_HEIGHT + 6
 
 local windowHeight = buttonY + BUTTON_HEIGHT + MARGIN
@@ -276,108 +304,134 @@ local familiarButton = addButton("Show familiar", id.StyleSheet.BUTTON_DEFAULT, 
 	setFamiliarShown(not showFamiliar, true)
 end)
 
--- Creates a grid with one cell per slot of `invType`, its top-left corner at
--- x, y, every cell ICON_WIDTH by ICON_HEIGHT. `makeCell` creates what goes in
--- each cell. Returns the cells, indexed by slot number, and the grid.
-local function addGrid(invType, columns, x, y, makeCell)
-	local rows = math.ceil(invType.size / columns)
-	local grid = ui.Grid.new(window)
-	grid:SetColumnRows(columns, rows)
-	grid:SetSize(columns * ICON_WIDTH, rows * ICON_HEIGHT)
-	grid:SetPos(x, y)
-
-	local cells = {}
-	for slot = 1, invType.size do
-		local cell = makeCell(grid)
-		cell:SetSize(0, 0, 1.0, 1.0) -- fill its grid cell; the grid doesn't size children
-		cell.hidden = true
-		cells[slot] = cell
-	end
-	return cells, grid
-end
-
-local function makeIcon(grid)
-	return ui.Sprite.new(grid)
-end
-
--- The client's SetAssociatedObject only takes an item ID (it rejected every
--- form with a quantity, though the docs list one), so stack sizes are drawn
--- as text in a second grid laid exactly over the icons.
-local function makeQuantity(grid)
-	local quantity = ui.Text.new(grid)
-	quantity.font = id.Font.MUSEO_SANS_15PT_REGULAR
-	quantity.colour = Vector4.new(1.0, 1.0, 0.0, 1.0) -- yellow, like the game's own
-	quantity.isShadowed = true
-	quantity:AlignTo(ui.AlignMode.TOPLEFT)
-	return quantity
-end
-
 -- Colours that mark a slot holding the wrong thing (see presets.layoutErrors).
 local ERROR_COLOURS = {
 	notInPreset = Vector4.new(1.0, 0.2, 0.2, 1.0), -- red: not part of the preset
 	wrongSlot = Vector4.new(1.0, 0.6, 0.1, 1.0), -- orange: right item, wrong slot
 }
 
--- A frame around a slot, shown when that slot in the player's own backpack or
--- worn equipment holds the wrong thing.
-local function makeErrorMark(grid)
-	local mark = ui.Rectangle.new(grid)
-	mark.fill = false
-	return mark
+-- Creates one item slot with its top-left corner at x, y, ICON_WIDTH by
+-- ICON_HEIGHT, from back to front:
+--   well, edge: a recessed square like the bank's own item slots, a couple of
+--               units in from the cell's edges so neighbours have a gap
+--   icon:       the item. (The client's SetAssociatedObject only takes an
+--               item ID; it rejected every form with a quantity, though the
+--               docs list one, so the stack size is drawn as text instead.)
+--   quantity:   the stack size, in yellow like the game's own
+--   mark:       a frame shown when the player's own slot holds the wrong thing
+-- Adds every component to `parts` (so a whole section can be hidden at once).
+local SLOT_INSET = 2
+local function addCell(x, y, parts)
+	local inner = { x + SLOT_INSET, y + SLOT_INSET, ICON_WIDTH - 2 * SLOT_INSET, ICON_HEIGHT - 2 * SLOT_INSET }
+	local cell = {}
+
+	cell.well = ui.Rectangle.new(window)
+	cell.well.colour = SLOT_COLOUR
+	cell.well.fill = true
+
+	cell.edge = ui.Rectangle.new(window)
+	cell.edge.colour = SLOT_EDGE_COLOUR
+	cell.edge.fill = false
+
+	for _, part in ipairs({ cell.well, cell.edge }) do
+		part:SetSize(inner[3], inner[4])
+		part:SetPos(inner[1], inner[2])
+	end
+
+	cell.icon = ui.Sprite.new(window)
+
+	cell.quantity = ui.Text.new(window)
+	cell.quantity.font = id.Font.MUSEO_SANS_15PT_REGULAR
+	cell.quantity.colour = Vector4.new(1.0, 1.0, 0.0, 1.0)
+	cell.quantity.isShadowed = true
+	cell.quantity:AlignTo(ui.AlignMode.TOPLEFT)
+
+	cell.mark = ui.Rectangle.new(window)
+	cell.mark.fill = false
+
+	for _, part in ipairs({ cell.icon, cell.quantity, cell.mark }) do
+		part:SetSize(ICON_WIDTH, ICON_HEIGHT)
+		part:SetPos(x, y)
+		part.hidden = true
+	end
+	for _, part in ipairs({ cell.well, cell.edge, cell.icon, cell.quantity, cell.mark }) do
+		parts[#parts + 1] = part
+	end
+	return cell
 end
 
--- Draws a recessed well behind every slot of a grid, like the bank's own item
--- slots: a dark square with a faint edge, a couple of units in from the
--- cell's edges so neighbouring wells have a gap between them. Placed by exact
--- position (not in a Grid) so the gap is guaranteed. Returns the rectangles.
-local SLOT_INSET = 2
-local function addSlotWells(invType, columns, x, y)
-	local parts = {}
+-- Lays out one slot per slot of `invType` in rows `columns` wide, starting at
+-- x, y. Returns the cells, indexed by slot number, and the list of parts.
+local function addSlots(invType, columns, x, y)
+	local cells, parts = {}, {}
 	for slot = 1, invType.size do
 		local column, row = (slot - 1) % columns, (slot - 1) // columns
-		local wellX = x + column * ICON_WIDTH + SLOT_INSET
-		local wellY = y + row * ICON_HEIGHT + SLOT_INSET
-		local width, height = ICON_WIDTH - 2 * SLOT_INSET, ICON_HEIGHT - 2 * SLOT_INSET
-
-		local well = ui.Rectangle.new(window)
-		well:SetSize(width, height)
-		well:SetPos(wellX, wellY)
-		well.colour = SLOT_COLOUR
-		well.fill = true
-
-		local edge = ui.Rectangle.new(window)
-		edge:SetSize(width, height)
-		edge:SetPos(wellX, wellY)
-		edge.colour = SLOT_EDGE_COLOUR
-		edge.fill = false
-		parts[#parts + 1] = well
-		parts[#parts + 1] = edge
+		cells[slot] = addCell(x + column * ICON_WIDTH, y + row * ICON_HEIGHT, parts)
 	end
-	return parts
+	return cells, parts
 end
 
--- Each slot of the backpack, worn and BoB grids: a recessed well, an icon,
--- its quantity text and an error frame, laid exactly over each other (later
--- ones are drawn on top). Returns the slots, and a list of every component
--- made (so a whole section can be hidden at once).
-local function addSlots(invType, columns, x, y)
-	local parts = addSlotWells(invType, columns, x, y)
-	local icons, iconGrid = addGrid(invType, columns, x, y, makeIcon)
-	local quantities, quantityGrid = addGrid(invType, columns, x, y, makeQuantity)
-	local marks, markGrid = addGrid(invType, columns, x, y, makeErrorMark)
-	parts[#parts + 1] = iconGrid
-	parts[#parts + 1] = quantityGrid
-	parts[#parts + 1] = markGrid
-	local slots = {}
-	for slot = 1, invType.size do
-		slots[slot] = { icon = icons[slot], quantity = quantities[slot], mark = marks[slot] }
+-- Draws a 2-unit-wide line between two points on the same row or column.
+local function addLine(x1, y1, x2, y2)
+	local line = ui.Rectangle.new(window)
+	line.colour = SLOT_EDGE_COLOUR
+	line.fill = true
+	line:SetSize(math.max(x2 - x1, 0) + 2, math.max(y2 - y1, 0) + 2)
+	line:SetPos(x1 - 1, y1 - 1)
+end
+
+-- Lays the worn slots out as the game's equipment figure (see WORN_FIGURE),
+-- with its connecting lines and a spare row underneath, starting at x, y.
+-- Returns { cells = { [slot] = cell }, spares = { cell, ... } }.
+local function addFigure(x, y)
+	-- The centre of the figure position at `column`, `row` (counting from 1).
+	local function centre(column, row)
+		return x + (column - 0.5) * ICON_WIDTH, y + (row - 0.5) * ICON_HEIGHT
 	end
-	return slots, parts
+
+	-- Lines first, so the slots are drawn over them, as in the game: down the
+	-- middle, across the weapon row, and down each side to hands and ring.
+	local midX, topY = centre(2, 1)
+	local _, feetY = centre(2, 5)
+	local leftX, weaponY = centre(1, 3)
+	local rightX = centre(3, 3)
+	addLine(midX, topY, midX, feetY)
+	addLine(leftX, weaponY, rightX, weaponY)
+	addLine(leftX, weaponY, leftX, feetY)
+	addLine(rightX, weaponY, rightX, feetY)
+
+	local parts = {}
+	local figure = { cells = {}, spares = {} }
+	for slot, place in pairs(WORN_FIGURE) do
+		local column, row = place[1], place[2]
+		figure.cells[slot] = addCell(x + (column - 1) * ICON_WIDTH, y + (row - 1) * ICON_HEIGHT, parts)
+	end
+	for column = 1, EQUIPMENT_COLUMNS do
+		local spare = addCell(x + (column - 1) * ICON_WIDTH, y + (SPARE_ROW - 1) * ICON_HEIGHT, parts)
+		spare.well.hidden, spare.edge.hidden = true, true -- only shown when used
+		figure.spares[column] = spare
+	end
+	return figure
+end
+
+-- Shows each section's icon (the same pictures as the bank's own tabs),
+-- centred under that section's slots.
+local SECTION_ICON_WIDTH, SECTION_ICON_HEIGHT = 24, 24
+local function addSectionIcon(spriteId, x, columns)
+	local icon = ui.Sprite.new(window)
+	icon.sprite = spriteId
+	icon:SetSize(SECTION_ICON_WIDTH, SECTION_ICON_HEIGHT)
+	icon:SetPos(x + (columns * ICON_WIDTH - SECTION_ICON_WIDTH) // 2, sectionIconY)
+	return icon
 end
 
 local backpackSlots = addSlots(BACKPACK, BACKPACK_COLUMNS, backpackX, gridY)
-local equipmentSlots = addSlots(EQUIPMENT, EQUIPMENT_COLUMNS, equipmentX, gridY)
+local equipmentFigure = addFigure(equipmentX, gridY)
 local bobSlots, bobParts = addSlots(BOB, BOB_COLUMNS, bobX, gridY)
+
+addSectionIcon(SECTION_ICONS.backpack, backpackX, BACKPACK_COLUMNS)
+addSectionIcon(SECTION_ICONS.worn, equipmentX, EQUIPMENT_COLUMNS)
+bobParts[#bobParts + 1] = addSectionIcon(SECTION_ICONS.bob, bobX, BOB_COLUMNS)
 
 local status = ui.Text.new(window)
 status.font = id.Font.MUSEO_SANS_15PT_REGULAR
@@ -391,31 +445,64 @@ local selected = #savedPresets > 0 and 1 or nil
 -- Whether "Show what's missing" is turned on.
 local showingMissing = false
 
--- Shows a preset's items in a grid of slots. Slots in `stillNeeded` stay
--- solid; the rest fade when `fadeHave` is true. Empty slots are hidden.
--- Slots in `errors` (from presets.layoutErrors) get a coloured frame.
-local function showSlots(gridSlots, items, stillNeeded, fadeHave, errors)
-	for slot, cell in ipairs(gridSlots) do
-		local problem = errors[slot]
-		cell.mark.hidden = problem == nil
-		if problem then
-			cell.mark.colour = ERROR_COLOURS[problem]
-		end
+-- Shows one item in a cell: faded if `faded`, framed in red or orange if
+-- `problem` is set (see presets.layoutErrors), empty if `item` is nil.
+local function showCell(cell, item, faded, problem)
+	cell.mark.hidden = problem == nil
+	if problem then
+		cell.mark.colour = ERROR_COLOURS[problem]
+	end
+	if item then
+		local alpha = faded and FADED_ALPHA or 1
+		cell.icon:SetAssociatedObject(item.itemId)
+		cell.icon.alpha = alpha
+		cell.icon.hidden = false
+		-- Like the game, only stacks of more than one show a number.
+		cell.quantity.content = presets.formatQuantity(item.quantity)
+		cell.quantity.alpha = alpha
+		cell.quantity.hidden = item.quantity <= 1
+	else
+		cell.icon.hidden = true
+		cell.quantity.hidden = true
+	end
+end
 
-		local item = items[slot]
-		if item then
-			local alpha = (fadeHave and not stillNeeded[slot]) and FADED_ALPHA or 1
-			cell.icon:SetAssociatedObject(item.itemId)
-			cell.icon.alpha = alpha
-			cell.icon.hidden = false
-			-- Like the game, only stacks of more than one show a number.
-			cell.quantity.content = presets.formatQuantity(item.quantity)
-			cell.quantity.alpha = alpha
-			cell.quantity.hidden = item.quantity <= 1
-		else
-			cell.icon.hidden = true
-			cell.quantity.hidden = true
+-- Shows a preset's items in a section's cells ({ [slot] = cell }). Slots in
+-- `stillNeeded` stay solid; the rest fade when `fadeHave` is true. Slots in
+-- `errors` (from presets.layoutErrors) get a coloured frame.
+local function showSlots(cells, items, stillNeeded, fadeHave, errors)
+	for slot, cell in pairs(cells) do
+		showCell(cell, items[slot], fadeHave and not stillNeeded[slot], errors[slot])
+	end
+end
+
+-- Shows worn items in the equipment figure. Items in slots the figure doesn't
+-- place (see WORN_FIGURE) go in the spare row instead, in slot order.
+local function showFigure(figure, items, stillNeeded, fadeHave, errors)
+	showSlots(figure.cells, items, stillNeeded, fadeHave, errors)
+
+	local unplaced = {}
+	for _, slots in ipairs({ items, errors }) do
+		for slot in pairs(slots) do
+			if not WORN_FIGURE[slot] then
+				unplaced[slot] = true
+			end
 		end
+	end
+	local used = 0
+	for _, slot in ipairs(presets.filledSlots(unplaced)) do
+		local spare = figure.spares[used + 1]
+		if not spare then
+			break
+		end
+		used = used + 1
+		spare.well.hidden, spare.edge.hidden = false, false
+		showCell(spare, items[slot], fadeHave and not stillNeeded[slot], errors[slot])
+	end
+	for index = used + 1, #figure.spares do
+		local spare = figure.spares[index]
+		spare.well.hidden, spare.edge.hidden = true, true
+		showCell(spare, nil, false, nil)
 	end
 end
 
@@ -465,8 +552,10 @@ local function refresh()
 		title.content = "No saved presets yet"
 		status.content = "Set up your gear, type a name and press Save."
 		showSlots(backpackSlots, {}, {}, false, {})
-		showSlots(equipmentSlots, {}, {}, false, {})
-		showSlots(bobSlots, {}, {}, false, {})
+		showFigure(equipmentFigure, {}, {}, false, {})
+		if showFamiliar then
+			showSlots(bobSlots, {}, {}, false, {})
+		end
 		return
 	end
 
@@ -497,8 +586,11 @@ local function refresh()
 		end
 	end
 	showSlots(backpackSlots, preset.inventory, stillNeeded.inventory, showingMissing, backpackErrors)
-	showSlots(equipmentSlots, preset.equipment, stillNeeded.equipment, showingMissing, wornErrors)
-	showSlots(bobSlots, preset.bob, stillNeeded.bob, showingMissing, bobErrors)
+	showFigure(equipmentFigure, preset.equipment, stillNeeded.equipment, showingMissing, wornErrors)
+	-- While the familiar section is closed its slots stay hidden (see layoutWidth).
+	if showFamiliar then
+		showSlots(bobSlots, preset.bob, stillNeeded.bob, showingMissing, bobErrors)
+	end
 end
 
 -- Returns the position in savedPresets of the preset the list has highlighted,
