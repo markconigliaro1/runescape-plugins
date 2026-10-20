@@ -30,7 +30,9 @@
     "Vector4",
     "PluginShutdown",
     "Inventory",
-    "Mouse"
+    "Mouse",
+    "GameKey",
+    "Keyboard"
   ],
   "workspace.checkThirdParty": false
 }

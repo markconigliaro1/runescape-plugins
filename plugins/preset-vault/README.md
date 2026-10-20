@@ -11,8 +11,13 @@ first.
   carrying if one is summoned, under a name you choose.
 - **Quick save** from the button beside **Preset Vault** on the bank: it saves
   straight away, without opening the window, under a name like "Saved 19 Oct
-  20:15". **Rename** it later: select it, type the new name and press
-  **Rename**.
+  20:15". **Ctrl+S** does the same while your bank is open. **Rename** it
+  later: select it, type the new name and press **Rename**.
+- **Copy your game presets:** open a preset in the bank's **Presets** tab and
+  a **Copy preset 3 to vault** button (for whichever preset you're looking
+  at) appears beside "Exact matching?". It copies the preset into the vault
+  under its in-game name, including only the parts (backpack, worn,
+  familiar) the preset has ticked.
 - **Browse** your saved setups in a list. The selected one is shown as item
   icons, laid out like your backpack, worn equipment and beast of burden.
   The beast of burden section is hidden until you press **Show familiar**;

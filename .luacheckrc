@@ -13,8 +13,10 @@ files["plugins/**"] = {
 		"config", -- static game config, e.g. config.NPC.DOG_STRAY
 		"Event", -- game events, e.g. Event.ServerLogic.Subscribe(id, fn)
 		"formatStr", -- fills {} placeholders in order, e.g. formatStr("{} is {}", a, b)
+		"GameKey", -- keys, e.g. GameKey.S
 		"id", -- ID tables, e.g. id.Component.*
 		"Inventory", -- item containers, e.g. Inventory.Find(config.Inv.INV)
+		"Keyboard", -- keyboard state, e.g. Keyboard.IsControlDown()
 		"log", -- writes a line to the client console
 		"Mouse", -- mouse position, e.g. Mouse.GetPosition()
 		"NPCList", -- NPCs currently near the player, e.g. NPCList.ByName(name)

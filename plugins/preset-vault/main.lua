@@ -134,6 +134,30 @@ local function readSlots(invType)
 	return items
 end
 
+-- Reads a property that only some kinds of component have (e.g. `scrollable`,
+-- which only containers have), giving nil instead of an error.
+local function tryProperty(component, property)
+	local ok, value = pcall(function()
+		return component[property]
+	end)
+	if ok then
+		return value
+	end
+	return nil
+end
+
+-- Looks up a bank component by name, or nil if the client has no such name
+-- or the component isn't loaded.
+local function findBankComponent(name)
+	local ok, component = pcall(function()
+		return ui.Interfaces:GetComponent(id.Component[name])
+	end)
+	if ok then
+		return component
+	end
+	return nil
+end
+
 -- Adds up the items in the given sections of what the player has (each as
 -- read by readSlots): { [itemId] = quantity }.
 local function carriedItems(...)
@@ -144,6 +168,51 @@ local function carriedItems(...)
 		end
 	end
 	return carried
+end
+
+-- The game's own presets. When the player views one of their presets in the
+-- bank's Presets tab, the game sends its contents into SHARE_PRESET_INV<n> and
+-- SHARE_PRESET_WORN<n>, where <n> is the preset's number; only the preset on
+-- screen is filled (found in game; the docs don't cover this).
+-- SHARE_PRESET_BOB holds its familiar's inventory.
+local GAME_PRESET_COUNT = 18
+local GAME_PRESET_BOB = config.Inv.SHARE_PRESET_BOB
+
+-- Each game preset says which sections it includes with three tick boxes on
+-- the preset screen. Their ticked state isn't a property; the game draws them
+-- with a different sprite (found in game): 18543 ticked, 18541 unticked.
+local UNTICKED_SPRITE = 18541
+local PRESET_TICK_BOXES = {
+	inventory = "BANK__PRESET_INV_CHECKBOX",
+	equipment = "BANK__PRESET_WORN_CHECKBOX",
+	bob = "BANK__PRESET_BOB_CHECKBOX",
+}
+
+-- Whether the game preset on screen includes `section`. Anything other than
+-- the known unticked image counts as included: copying a section too many is
+-- safer than silently leaving one out.
+local function presetIncludes(section)
+	local ok, sprite = pcall(function()
+		return ui.Interfaces:GetComponent(id.Component[PRESET_TICK_BOXES[section]]).sprite
+	end)
+	return not (ok and sprite == UNTICKED_SPRITE)
+end
+
+-- Reads game preset `number` (while it's on screen) as a preset called `name`,
+-- leaving out any section the preset doesn't include.
+local function readGamePreset(number, name)
+	local preset = presets.new(name)
+	local sources = {
+		inventory = config.Inv["SHARE_PRESET_INV" .. number],
+		equipment = config.Inv["SHARE_PRESET_WORN" .. number],
+		bob = GAME_PRESET_BOB,
+	}
+	for section, invType in pairs(sources) do
+		if presetIncludes(section) then
+			preset[section] = readSlots(invType)
+		end
+	end
+	return preset
 end
 
 -- Returns an item's display name.
@@ -222,6 +291,12 @@ bankButton.hidden = true
 local QUICK_SAVE_LABEL = "Quick save"
 local quickSaveButton = ui.Button.new(gameWindow)
 quickSaveButton.label = QUICK_SAVE_LABEL
+
+-- Shown under a game preset's equipment panel while it's on screen in the
+-- bank's Presets tab (see "Copying game presets" below).
+local copyButton = ui.Button.new(gameWindow)
+copyButton.stylesheetID = id.StyleSheet.BUTTON_DEFAULT
+copyButton.hidden = true
 quickSaveButton.stylesheetID = id.StyleSheet.BUTTON_DEFAULT
 quickSaveButton.hidden = true
 
@@ -285,7 +360,7 @@ presetList.stylesheetID = id.StyleSheet.DROPDOWN_DEFAULT
 presetList.dropdownMaxVisibleEntries = 0 -- 0 = an ordinary scrolling list, not a dropdown
 -- The list runs from the top down to the Strict slot order tick box. Below
 -- that is the name box, level with the status line on the right.
-presetList:SetSize(LIST_WIDTH, statusY - contentY - LINE_HEIGHT - 12)
+presetList:SetSize(LIST_WIDTH, statusY - contentY - (LINE_HEIGHT + 6) - 6)
 presetList:SetPos(MARGIN, contentY)
 
 local nameInput = ui.InputField.new(window)
@@ -686,12 +761,67 @@ end
 -- from the date and time, e.g. "Saved 19 Oct 20:15", numbered if that's taken.
 -- Rename it later from the window. (Falls back to "Quick save" if the client
 -- doesn't provide os.date.)
-local function quickSave()
+-- The date and time for names, e.g. "19 Oct 20:15", or nil if the client
+-- doesn't provide os.date.
+local function timestamp()
 	local ok, stamp = pcall(function()
 		return os.date("%d %b %H:%M")
 	end)
-	local name = (ok and stamp) and ("Saved " .. stamp) or "Quick save"
+	return ok and stamp or nil
+end
+
+local function quickSave()
+	local stamp = timestamp()
+	local name = stamp and ("Saved " .. stamp) or "Quick save"
 	savePreset(presets.uniqueName(savedPresets, name))
+end
+
+-- Saves the stored presets and redraws after a change made outside the window.
+local function savedPresetsChanged()
+	storePresets()
+	refreshList()
+	refresh()
+end
+
+-- The name game preset `number` has in the bank's preset list. The list
+-- (BANK__PRESET_LIST_BUILD, found in game) shows each preset as a run of
+-- entries: its number, then its name, then one without text. So the name is
+-- the entry straight after the one whose text is the number. Falls back to
+-- "Game preset <n>" if the list isn't readable or the preset still has the
+-- game's default name, "Preset".
+local function gamePresetName(number)
+	local fallback = "Game preset " .. number
+	local list = findBankComponent("BANK__PRESET_LIST_BUILD")
+	if not list then
+		return fallback
+	end
+	local texts = {} -- dynamicID -> text
+	pcall(function()
+		list:IterateDynamicComponents(function(entry)
+			local text = tryProperty(entry, "content")
+			if type(text) == "string" then
+				texts[entry.dynamicID] = text
+			end
+		end)
+	end)
+	for dynamicID, text in pairs(texts) do
+		if text == tostring(number) then
+			local name = texts[dynamicID + 1]
+			if name and name ~= "" and name ~= "Preset" then
+				return name
+			end
+		end
+	end
+	return fallback
+end
+
+-- Copy preset (the button on a game preset's screen): copies game preset
+-- `number` into the vault under its in-game name, numbered if taken, and
+-- selects it.
+local function copyGamePreset(number)
+	local name = presets.uniqueName(savedPresets, gamePresetName(number))
+	selected = presets.save(savedPresets, readGamePreset(number, name))
+	savedPresetsChanged()
 end
 
 -- Rename: gives the selected preset the typed name, unless another preset
@@ -911,14 +1041,31 @@ layoutWidth()
 
 window.hidden = true
 
--- Strict slot order setting ------------------------------------------------
--- The setting has a tick box in the window, and another in the plugin's
+-- Settings tick boxes -----------------------------------------------------
+-- Each setting has a tick box in the window, and another in the plugin's
 -- settings page (plugin.json sets "hasSettingsIcon", which should put a
 -- settings icon on Preset Vault in the Plugin Hub's Manage tab; it hasn't
--- appeared for the dev copy, hence the one in the window). Both change the
+-- appeared for the dev copy, hence the ones in the window). Both change the
 -- same saved value.
 
-local windowStrictCheck -- the tick box in the window, kept in step
+-- Creates a tick box in `parent`, ticked if `value`, calling `onChange` with
+-- the new state when it's clicked.
+local function addCheck(parent, label, value, onChange)
+	local check = ui.Check.new(parent)
+	-- Only use the check box style if this client has it (missing ones read as
+	-- -1 and make the component draw nothing).
+	if id.StyleSheet.CHECKBOX_DEFAULT ~= -1 then
+		check.stylesheetID = id.StyleSheet.CHECKBOX_DEFAULT
+	end
+	check.label = label
+	check.value = value
+	check:Subscribe(ui.Hook.ONBUTTONPRESSED, function(_check, ticked)
+		onChange(ticked)
+	end)
+	return check
+end
+
+local windowStrictCheck -- the window's tick box, kept in step
 
 local function setStrictSlots(on)
 	strictSlots = on
@@ -927,34 +1074,25 @@ local function setStrictSlots(on)
 	refresh()
 end
 
--- Creates a Strict slot order tick box in `parent`.
-local function addStrictCheck(parent, label)
-	local check = ui.Check.new(parent)
-	-- Only use the check box style if this client has it (missing ones read as
-	-- -1 and make the component draw nothing).
-	if id.StyleSheet.CHECKBOX_DEFAULT ~= -1 then
-		check.stylesheetID = id.StyleSheet.CHECKBOX_DEFAULT
-	end
-	check.label = label
-	check.value = strictSlots
-	check:Subscribe(ui.Hook.ONBUTTONPRESSED, function(_check, ticked)
-		setStrictSlots(ticked)
-	end)
-	return check
-end
-
-windowStrictCheck = addStrictCheck(window, "Strict slot order")
+-- In the window: just above the name box.
+windowStrictCheck = addCheck(window, "Strict slot order", strictSlots, setStrictSlots)
 windowStrictCheck:SetSize(LIST_WIDTH, LINE_HEIGHT)
-windowStrictCheck:SetPos(MARGIN, statusY - LINE_HEIGHT - 6)
+windowStrictCheck:SetPos(MARGIN, statusY - (LINE_HEIGHT + 6))
 
 -- Opening the settings page fires SettingsLayerReady with an empty component.
 Event.SettingsLayerReady.Subscribe("presetVaultSettings", function(event)
-	local check = addStrictCheck(
-		event.component,
-		"Strict slot order: flag preset items in the wrong backpack or beast of burden slot"
-	)
-	check:SetSize(0, LINE_HEIGHT, 1.0, 0)
-	check:SetPos(MARGIN, MARGIN)
+	local settings = {
+		{
+			"Strict slot order: flag preset items in the wrong backpack or beast of burden slot",
+			strictSlots,
+			setStrictSlots,
+		},
+	}
+	for row, setting in ipairs(settings) do
+		local check = addCheck(event.component, setting[1], setting[2], setting[3])
+		check:SetSize(0, LINE_HEIGHT, 1.0, 0)
+		check:SetPos(MARGIN, MARGIN + (row - 1) * (LINE_HEIGHT + 6))
+	end
 end)
 
 -- Keeping up to date -------------------------------------------------------
@@ -978,18 +1116,6 @@ Event.InventoryAdded.Subscribe("presetVaultInventory", onInventoryChanged)
 local HIGHLIGHT_COLOUR = Vector4.new(0.2, 1.0, 0.2, 1.0) -- bright green
 local HIGHLIGHT_THICKNESS = 2
 local HIGHLIGHT_INTERVAL = 0.1 -- seconds between redraws, so scrolling is followed
-
--- Reads a property that only some kinds of component have (e.g. `scrollable`,
--- which only containers have), giving nil instead of an error.
-local function tryProperty(component, property)
-	local ok, value = pcall(function()
-		return component[property]
-	end)
-	if ok then
-		return value
-	end
-	return nil
-end
 
 -- Finds the container that scrolls the bank's slots: the nearest of the slot
 -- container and its parents whose scroll content is taller than itself. (Every
@@ -1102,23 +1228,79 @@ end)
 -- loop below).
 local SAVED_LABEL_SECONDS = 2
 local savedLabelTimeLeft = 0
-quickSaveButton:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
+local function quickSaveFromBank()
 	quickSave()
 	quickSaveButton.label = "Saved!"
 	savedLabelTimeLeft = SAVED_LABEL_SECONDS
-end)
+end
+quickSaveButton:Subscribe(ui.Hook.ONBUTTONPRESSED, quickSaveFromBank)
 
--- Looks up a bank component by name, or nil if the client has no such name
--- or the component isn't loaded.
-local function findBankComponent(name)
-	local ok, component = pcall(function()
-		return ui.Interfaces:GetComponent(id.Component[name])
-	end)
-	if ok then
-		return component
+-- Copying game presets -----------------------------------------------------
+-- Which game preset is on screen is found by looking, not from events: only
+-- the preset being viewed has its SHARE_PRESET inventories filled, so the
+-- first one with items is it (checked in the redraw loop below).
+
+-- The number of the game preset on screen in the bank's Presets tab, or nil.
+local function gamePresetOnScreen()
+	local presetScreen = findBankComponent("BANK__PRESET_WORN_ITEM_LAYER")
+	if not (presetScreen and presetScreen.visibleGlobal) then
+		return nil
+	end
+	for number = 1, GAME_PRESET_COUNT do
+		for _, kind in ipairs({ "INV", "WORN" }) do
+			local inv = findInventory(config.Inv["SHARE_PRESET_" .. kind .. number])
+			if inv and inv.usedSlotCount > 0 then
+				return number
+			end
+		end
 	end
 	return nil
 end
+
+-- The copy button sits at the right-hand end of the preset screen's "Exact
+-- matching?" row (BANK__PRESET_EXACT_MATCH_CHECKBOX, found in game), to the
+-- right of that tick box and its label, at the row's height.
+local COPY_BUTTON_WIDTH = 150
+local COPIED_LABEL_SECONDS = 2
+local copiedLabelTimeLeft = 0
+local copyButtonPreset = nil -- the game preset the button would copy
+
+copyButton:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
+	if copyButtonPreset then
+		copyGamePreset(copyButtonPreset)
+		copyButton.label = "Copied!"
+		copiedLabelTimeLeft = COPIED_LABEL_SECONDS
+	end
+end)
+
+local function placeCopyButton(number)
+	local row = findBankComponent("BANK__PRESET_EXACT_MATCH_CHECKBOX")
+	copyButtonPreset = number and row and row.visibleGlobal and number or nil
+	if not copyButtonPreset then
+		copyButton.hidden = true
+		return
+	end
+	local corner, origin = row.xyGlobal, gameWindow.xyGlobal
+	copyButton:SetSize(COPY_BUTTON_WIDTH, row.height)
+	copyButton:SetPos(math.floor(corner.x + row.width - COPY_BUTTON_WIDTH - origin.x), math.floor(corner.y - origin.y))
+	if copiedLabelTimeLeft <= 0 then
+		copyButton.label = formatStr("Copy preset {} to vault", number)
+	end
+	copyButton.hidden = false
+end
+
+-- Keyboard shortcut: Ctrl+S quick-saves while the bank is open (that is,
+-- while the Quick save button is showing). Plugins can't stop the game from
+-- also seeing a key, so the shortcut needs Ctrl rather than a plain letter
+-- that could type into chat. Held-down repeats are ignored.
+Event.KeyDown.Subscribe("presetVaultQuickSaveKey", function(event)
+	if event.isRepeat or event.gameKey ~= GameKey.S or not Keyboard.IsControlDown() then
+		return
+	end
+	if not quickSaveButton.hidden then
+		quickSaveFromBank()
+	end
+end)
 
 -- Shows the bank buttons above the Transfer and Presets tabs, splitting their
 -- width, while they're on screen; hides them otherwise.
@@ -1153,6 +1335,9 @@ end
 -- follow scrolling, without walking all the bank's slots 60 times a second.
 local sinceLastHighlight = 0
 Event.Draw.Subscribe("presetVaultHighlights", function(event)
+	if copiedLabelTimeLeft > 0 then
+		copiedLabelTimeLeft = copiedLabelTimeLeft - event.timeDeltaSecs
+	end
 	if savedLabelTimeLeft > 0 then
 		savedLabelTimeLeft = savedLabelTimeLeft - event.timeDeltaSecs
 		if savedLabelTimeLeft <= 0 then
@@ -1164,6 +1349,7 @@ Event.Draw.Subscribe("presetVaultHighlights", function(event)
 		sinceLastHighlight = 0
 		drawBankHighlights()
 		placeBankButton()
+		placeCopyButton(gamePresetOnScreen())
 	end
 end)
 
